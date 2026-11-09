@@ -4,6 +4,7 @@ import type { ActionType } from '../shared/types';
 import { encryptKey, decryptKey } from './crypto';
 import { accountView, actionRow, actionView, type AccountRow, type ActionRow } from './db';
 import { PanelError, safeUpstreamMessage } from './errors';
+import { originAllowed } from './origin';
 import { Instabox, type Fetcher } from './instabox';
 import { database, ensureDatabase } from './schema';
 import { applyOperation, createAction } from './actions';
@@ -15,7 +16,7 @@ import { registerSnapshotRoutes } from './snapshots';
 import { registerPortRoutes } from './ports';
 import { isFileUpload, registerFileRoutes } from './files';
 
-export interface Env { DB: D1Database; KEY_ENCRYPTION_SECRET?: string; AUTOMATION_SECRET?: string; ASSETS: FetcherBinding }
+export interface Env { DB: D1Database; KEY_ENCRYPTION_SECRET?: string; AUTOMATION_SECRET?: string; PANEL_ALLOWED_ORIGINS?: string; ASSETS: FetcherBinding }
 interface FetcherBinding { fetch(request: Request): Promise<Response> }
 interface Dependencies {
   fetcher?: Fetcher;
@@ -65,7 +66,7 @@ export function createApp(deps: Dependencies = {}) {
     if (new URL(c.req.url).protocol !== 'https:')
       throw new PanelError(400, 'https_required', '管理员登录和机器管理需要 HTTPS，请使用 Cloudflare 的 HTTPS 地址。');
     if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && !(c.req.method === 'POST' && c.req.path === '/api/telegram/webhook')) {
-      if (c.req.header('Origin') !== new URL(c.req.url).origin || c.req.header('X-Panel-Request') !== '1')
+      if (!originAllowed(c.req.header('Origin'), c.req.url, c.env.PANEL_ALLOWED_ORIGINS) || c.req.header('X-Panel-Request') !== '1')
         throw new PanelError(403, 'csrf_rejected', '请求来源验证失败，请从面板重新操作。');
       if (isFileUpload(c.req.method, c.req.path)) {
         if (c.req.header('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/octet-stream')
@@ -186,7 +187,7 @@ export function createApp(deps: Dependencies = {}) {
     return c.json({ machine: await (await client(c.get('identity'), row)).machine(validId(c.req.param('machineId'))), checkedAt: now() });
   });
   app.get('/api/accounts/:id/machines/:machineId/terminal', async c => {
-    if (c.req.header('Origin') !== new URL(c.req.url).origin)
+    if (!originAllowed(c.req.header('Origin'), c.req.url, c.env.PANEL_ALLOWED_ORIGINS))
       throw new PanelError(403, 'csrf_rejected', '终端连接来源无效。');
     if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket')
       throw new PanelError(426, 'websocket_required', '终端需要 WebSocket 连接。');
