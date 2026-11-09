@@ -1,6 +1,7 @@
 import type { DesktopState } from '../shared/resources';
 import { encryptKey, decryptKey } from './crypto';
 import { PanelError, safeUpstreamMessage } from './errors';
+import { originAllowed } from './origin';
 import type { ResourceAccess, ResourceApp, ResourceContext } from './resource-context';
 import { resourceId, resourceBody } from './resource-context';
 
@@ -75,7 +76,7 @@ export function registerDesktopRoutes(app: ResourceApp, access: ResourceAccess) 
     return { ...ctx, data };
   }
   app.get('/api/accounts/:id/machines/:machineId/desktop/vnc', async c => {
-    if (c.req.header('Origin') !== new URL(c.req.url).origin) throw new PanelError(403, 'csrf_rejected', '桌面连接来源无效。');
+    if (!originAllowed(c.req.header('Origin'), c.req.url, c.env.PANEL_ALLOWED_ORIGINS)) throw new PanelError(403, 'csrf_rejected', '桌面连接来源无效。');
     if (c.req.header('Upgrade')?.toLowerCase() !== 'websocket') throw new PanelError(426, 'websocket_required', '桌面需要 WebSocket 连接。');
     const { data, row, identity } = await connection(c);
     const headers: Record<string,string> = {Upgrade:'websocket'};
